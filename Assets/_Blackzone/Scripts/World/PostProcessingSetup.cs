@@ -45,8 +45,13 @@ namespace Blackzone.World
             color.contrast.Override(8f);              // slightly punchier
             color.saturation.Override(-12f);           // slightly desaturated desert feel
             color.hueShift.Override(4f);               // warm hue shift
-            color.temperature.Override(8f);            // warm temperature
-            color.tint.Override(3f);                   // warm tint
+
+            // Warm desert white balance — temperature/tint live on the
+            // WhiteBalance component in URP 17 (not ColorAdjustments).
+            var whiteBalance = profile.Add<WhiteBalance>();
+            whiteBalance.active = true;
+            whiteBalance.temperature.Override(8f);    // warm temperature
+            whiteBalance.tint.Override(3f);           // warm tint
 
             // --- Bloom (sun glare, weapon flashes) ---
             var bloom = profile.Add<Bloom>();

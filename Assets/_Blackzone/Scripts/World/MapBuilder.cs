@@ -831,16 +831,16 @@ namespace Blackzone.World
             root.rotation = rot;
 
             // Post
-            Box(root, "Post", postMat, new Vector3(0.06f, 2.0f, 0.06f),
-                new Vector3(0f, -1.0f, 0f));
+            Box(root, "Post", new Vector3(0.06f, 2.0f, 0.06f),
+                new Vector3(0f, -1.0f, 0f), postMat);
             // Sign board
-            Box(root, "Board", signMat, new Vector3(0.8f, 0.4f, 0.04f),
-                new Vector3(0f, 0f, 0f));
+            Box(root, "Board", new Vector3(0.8f, 0.4f, 0.04f),
+                new Vector3(0f, 0f, 0f), signMat);
             // Border
-            Box(root, "Border", postMat, new Vector3(0.84f, 0.04f, 0.05f),
-                new Vector3(0f, 0.2f, 0f));
-            Box(root, "Border", postMat, new Vector3(0.84f, 0.04f, 0.05f),
-                new Vector3(0f, -0.2f, 0f));
+            Box(root, "Border", new Vector3(0.84f, 0.04f, 0.05f),
+                new Vector3(0f, 0.2f, 0f), postMat);
+            Box(root, "Border", new Vector3(0.84f, 0.04f, 0.05f),
+                new Vector3(0f, -0.2f, 0f), postMat);
         }
 
         /// <summary>Rubble and debris piles near buildings and impact zones.</summary>

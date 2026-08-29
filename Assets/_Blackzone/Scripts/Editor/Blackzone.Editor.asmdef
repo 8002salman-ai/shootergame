@@ -1,0 +1,21 @@
+{
+  "name": "Blackzone.Editor",
+  "rootNamespace": "Blackzone.EditorTools",
+  "references": [
+    "Blackzone.Runtime",
+    "Unity.AI.Navigation",
+    "UnityEngine.UI",
+    "Unity.RenderPipelines.Universal.Runtime"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

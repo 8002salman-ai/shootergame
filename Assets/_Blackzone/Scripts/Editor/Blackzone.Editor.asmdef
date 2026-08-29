@@ -5,6 +5,7 @@
     "Blackzone.Runtime",
     "Unity.AI.Navigation",
     "UnityEngine.UI",
+    "Unity.RenderPipelines.Core.Runtime",
     "Unity.RenderPipelines.Universal.Runtime"
   ],
   "includePlatforms": [

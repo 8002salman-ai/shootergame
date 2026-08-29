@@ -30,264 +30,454 @@ namespace Blackzone.EditorTools
         {
             EnsureFolder(URP_FOLDER);
 
-            // =============================================================
-            // PHASE 1: Ensure renderer asset exists with valid data
-            // =============================================================
-            var rendererData = AssetDatabase.LoadAssetAtPath<UniversalRendererData>(RendererAssetPath);
-            if (rendererData == null)
-            {
-                Debug.Log("Blackzone: Creating new Forward Renderer Data...");
-                rendererData = ScriptableObject.CreateInstance<UniversalRendererData>();
-                AssetDatabase.CreateAsset(rendererData, RendererAssetPath);
-                AssetDatabase.SaveAssets();
-                Debug.Log("Blackzone: Renderer saved at " + RendererAssetPath);
-            }
+            Debug.Log("========================================");
+            Debug.Log("BLACKZONE URP SETUP — Starting...");
+            Debug.Log("========================================");
 
-            // =============================================================
-            // PHASE 2: Ensure pipeline asset exists
-            // =============================================================
-            var urp = AssetDatabase.LoadAssetAtPath<UniversalRenderPipelineAsset>(UrpAssetPath);
-            if (urp == null)
-            {
-                Debug.Log("Blackzone: Creating new URP Pipeline Asset...");
-                urp = UniversalRenderPipelineAsset.Create();
-                AssetDatabase.CreateAsset(urp, UrpAssetPath);
-                AssetDatabase.SaveAssets();
-                Debug.Log("Blackzone: Pipeline saved at " + UrpAssetPath);
-            }
+            // ===========================================================
+            // PHASE 1: FORCE-DELETE any existing broken assets.
+            // The previous approach created a pipeline via Create() which
+            // embeds an unsaved internal renderer that becomes fileID:0.
+            // The only reliable fix is to delete and recreate from scratch.
+            // ===========================================================
+            ForceDeleteAsset(UrpAssetPath);
+            ForceDeleteAsset(RendererAssetPath);
+            AssetDatabase.Refresh();
+            AssetDatabase.SaveAssets();
 
-            // =============================================================
-            // PHASE 3: CRITICAL — Link renderer to pipeline via SerializedObject
-            // This is the ONLY reliable way to set m_RendererDataList in code.
-            // SetRenderer() may not persist to the serialized .asset file.
-            // =============================================================
-            LinkRendererToPipeline(urp, rendererData);
+            // ===========================================================
+            // PHASE 2: Create the FORWARD RENDERER DATA first.
+            // This MUST be a saved asset on disk so the pipeline can
+            // reference it with a valid fileID/GUID.
+            // ===========================================================
+            Debug.Log("Blackzone: Creating Forward Renderer Data...");
+            var rendererData = ScriptableObject.CreateInstance<UniversalRendererData>();
 
-            // =============================================================
-            // PHASE 4: Configure URP settings
-            // =============================================================
-            ConfigureUrpSettings(urp);
+            // Configure renderer defaults for mobile tactical FPS
+            rendererData.renderingPath = RenderingPath.Forward;
+            rendererData.sortingCriteria = SortingCriteria.CommonOpaque;
 
-            // =============================================================
-            // PHASE 5: Save everything
-            // =============================================================
-            EditorUtility.SetDirty(urp);
-            EditorUtility.SetDirty(rendererData);
+            AssetDatabase.CreateAsset(rendererData, RendererAssetPath);
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
 
-            // =============================================================
-            // PHASE 6: Assign to GraphicsSettings
-            // =============================================================
-            GraphicsSettings.defaultRenderPipeline = urp;
-            GraphicsSettings.renderPipelineAsset = urp;
+            // Verify renderer asset exists on disk
+            var verifyRenderer = AssetDatabase.LoadAssetAtPath<UniversalRendererData>(RendererAssetPath);
+            if (verifyRenderer == null)
+            {
+                Debug.LogError("BLACKZONE: FAILED to create renderer asset at " + RendererAssetPath);
+                return;
+            }
+            Debug.Log("Blackzone: ✓ Renderer asset created: " + RendererAssetPath +
+                " (instanceID=" + verifyRenderer.GetInstanceID() +
+                ", name=" + verifyRenderer.name + ")");
 
-            // =============================================================
-            // PHASE 7: Configure Quality Levels
-            // =============================================================
-            ConfigureQualityLevels(urp);
+            // ===========================================================
+            // PHASE 3: Create the URP PIPELINE ASSET.
+            // IMPORTANT: We use CreateInstance (NOT UniversalRenderPipelineAsset.Create())
+            // because Create() embeds an internal unsaved renderer that causes
+            // the fileID:0 bug. We configure everything manually via SerializedObject.
+            // ===========================================================
+            Debug.Log("Blackzone: Creating URP Pipeline Asset via CreateInstance...");
+            var urp = ScriptableObject.CreateInstance<UniversalRenderPipelineAsset>();
+            AssetDatabase.CreateAsset(urp, UrpAssetPath);
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            // Verify pipeline asset exists on disk
+            var verifyPipeline = AssetDatabase.LoadAssetAtPath<UniversalRenderPipelineAsset>(UrpAssetPath);
+            if (verifyPipeline == null)
+            {
+                Debug.LogError("BLACKZONE: FAILED to create pipeline asset at " + UrpAssetPath);
+                return;
+            }
+            Debug.Log("Blackzone: ✓ Pipeline asset created: " + UrpAssetPath);
+
+            // ===========================================================
+            // PHASE 4: LINK RENDERER TO PIPELINE — multiple approaches
+            // to guarantee persistence across URP API versions.
+            // ===========================================================
+            LinkRendererMultiApproach(verifyPipeline, verifyRenderer);
+
+            // ===========================================================
+            // PHASE 5: Configure all URP pipeline settings
+            // ===========================================================
+            ConfigureUrpSettings(verifyPipeline);
+
+            // ===========================================================
+            // PHASE 6: Save, refresh, and save again
+            // ===========================================================
+            EditorUtility.SetDirty(verifyPipeline);
+            EditorUtility.SetDirty(verifyRenderer);
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            // ===========================================================
+            // PHASE 7: Assign to GraphicsSettings
+            // ===========================================================
+            GraphicsSettings.defaultRenderPipeline = verifyPipeline;
+            GraphicsSettings.renderPipelineAsset = verifyPipeline;
+
+            // ===========================================================
+            // PHASE 8: Configure Quality Levels
+            // ===========================================================
+            ConfigureQualityLevels(verifyPipeline);
 
             QualitySettings.vSyncCount = 0;
             AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
 
-            // =============================================================
-            // PHASE 8: VERIFY — Read back from disk to confirm
-            // =============================================================
-            bool verified = VerifyRendererPersisted(urp);
+            // ===========================================================
+            // PHASE 9: VERIFY — Re-read from disk and confirm
+            // ===========================================================
+            bool verified = VerifyRendererPersisted();
+
             if (verified)
             {
-                Debug.Log("Blackzone: ✓✓✓ URP SETUP VERIFIED — renderer is linked and persisted.");
+                Debug.Log("========================================");
+                Debug.Log("BLACKZONE: ✓✓✓ URP SETUP VERIFIED");
+                Debug.Log("  Renderer is linked and persisted.");
+                Debug.Log("  No 'Default Renderer is missing' error expected.");
+                Debug.Log("========================================");
             }
             else
             {
-                Debug.LogError("Blackzone: ✗✗✗ RENDERER NOT PERSISTED! " +
-                    "The .asset file still has null renderer. " +
-                    "Try: Delete " + UrpAssetPath + " and " + RendererAssetPath +
-                    ", then run menu Blackzone > 01 again.");
+                Debug.LogError("========================================");
+                Debug.LogError("BLACKZONE: ✗✗✗ RENDERER NOT PERSISTED!");
+                Debug.LogError("  Manual steps to fix:");
+                Debug.LogError("  1. Window > Rendering > Universal RP Asset");
+                Debug.LogError("  2. Select " + UrpAssetPath);
+                Debug.LogError("  3. In Inspector, set 'Scripted Renderer Feature List'");
+                Debug.LogError("     to contain " + RendererAssetPath);
+                Debug.LogError("  4. Set 'Default Renderer Index' to 0");
+                Debug.LogError("  5. Save the asset");
+                Debug.LogError("========================================");
             }
 
-            // Log full diagnostic
-            LogDiagnostic(urp, rendererData);
+            // Full diagnostic output
+            LogFullDiagnostic(verifyPipeline, verifyRenderer);
         }
 
         /// <summary>
-        /// Links the renderer data to the pipeline asset using SerializedObject.
-        /// This writes directly to the serialized fields, which is the only
-        /// reliable way to set m_RendererDataList from code in Unity 6 URP 17.
+        /// Attempts to link the renderer to the pipeline using multiple approaches
+        /// to handle different URP API versions. This is the critical step that
+        /// ensures m_RendererDataList[0] points to a saved renderer asset.
         /// </summary>
-        private static void LinkRendererToPipeline(
+        private static void LinkRendererMultiApproach(
             UniversalRenderPipelineAsset urp,
             UniversalRendererData rendererData)
         {
+            // ------ APPROACH A: Public API SetRenderer ------
+            Debug.Log("Blackzone: Approach A — SetRenderer(0, rendererData)...");
+            try
+            {
+                urp.SetRenderer(0, rendererData);
+                Debug.Log("Blackzone: SetRenderer(0) succeeded in memory.");
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning("Blackzone: SetRenderer(0) failed: " + ex.Message);
+            }
+
+            // ------ APPROACH B: SerializedObject m_RendererDataList ------
+            Debug.Log("Blackzone: Approach B — SerializedObject m_RendererDataList...");
             var so = new SerializedObject(urp);
 
-            // === Set m_RendererDataList[0] = rendererData ===
-            var rendererListProp = so.FindProperty("m_RendererDataList");
-            if (rendererListProp == null)
+            // First, enumerate ALL properties for diagnostic
+            Debug.Log("Blackzone: Enumerating all URP serialized properties...");
+            EnumerateProperties(so);
+
+            // Try m_RendererDataList (array form — most common)
+            bool linked = false;
+            linked = TrySetRendererProperty(so, "m_RendererDataList", rendererData, true);
+
+            // Fallback: try m_RendererData (non-array form)
+            if (!linked)
             {
-                // Try alternate property name
-                rendererListProp = so.FindProperty("m_RendererData");
+                linked = TrySetRendererProperty(so, "m_RendererData", rendererData, false);
             }
 
-            if (rendererListProp != null)
+            // Fallback: try m_RendererSettings
+            if (!linked)
             {
-                if (rendererListProp.isArray)
-                {
-                    // Ensure array has at least one element
-                    if (rendererListProp.arraySize < 1)
-                        rendererListProp.arraySize = 1;
-
-                    // Set element 0 to our renderer
-                    var element0 = rendererListProp.GetArrayElementAtIndex(0);
-                    element0.objectReferenceValue = rendererData;
-
-                    Debug.Log("Blackzone: Set m_RendererDataList[0] = " + rendererData.name +
-                        " (fileID=" + rendererData.GetInstanceID() + ")");
-                }
-                else
-                {
-                    // Non-array property — set directly
-                    rendererListProp.objectReferenceValue = rendererData;
-                    Debug.Log("Blackzone: Set m_RendererData = " + rendererData.name);
-                }
-            }
-            else
-            {
-                Debug.LogWarning("Blackzone: Could not find m_RendererDataList or m_RendererData. " +
-                    "Listing all serialized properties for diagnosis:");
-                ListSerializedProperties(so);
+                linked = TrySetRendererProperty(so, "m_RendererSettings", rendererData, false);
             }
 
-            // === Set m_DefaultRendererIndex = 0 ===
+            // Set default renderer index
             var defaultIndexProp = so.FindProperty("m_DefaultRendererIndex");
             if (defaultIndexProp != null)
             {
                 defaultIndexProp.intValue = 0;
                 Debug.Log("Blackzone: Set m_DefaultRendererIndex = 0");
             }
-            else
+
+            so.ApplyModifiedProperties();
+            EditorUtility.SetDirty(urp);
+
+            // ------ APPROACH C: Direct API fallback via reflection ------
+            if (!linked)
             {
-                Debug.LogWarning("Blackzone: Could not find m_DefaultRendererIndex property.");
+                Debug.Log("Blackzone: Approach C — Reflection fallback...");
+                linked = TrySetRendererViaReflection(urp, rendererData);
             }
 
-            // Apply changes — this writes to the in-memory serialized object
-            so.ApplyModifiedProperties();
-
-            // Mark dirty so Unity knows to save it
-            EditorUtility.SetDirty(urp);
+            if (!linked)
+            {
+                Debug.LogError("Blackzone: ALL linking approaches failed. " +
+                    "See property enumeration above for the correct property name.");
+            }
         }
 
         /// <summary>
-        /// Verifies that the renderer reference actually persisted to the asset.
-        /// Re-reads the asset from the SerializedObject after save.
+        /// Tries to set a renderer property by name, handling both array and non-array forms.
         /// </summary>
-        private static bool VerifyRendererPersisted(UniversalRenderPipelineAsset urp)
+        private static bool TrySetRendererProperty(
+            SerializedObject so, string propertyName,
+            UniversalRendererData rendererData, bool isArray)
+        {
+            var prop = so.FindProperty(propertyName);
+            if (prop == null)
+            {
+                Debug.Log("Blackzone: Property '" + propertyName + "' not found on URP asset.");
+                return false;
+            }
+
+            if (isArray)
+            {
+                if (prop.isArray)
+                {
+                    if (prop.arraySize < 1)
+                        prop.arraySize = 1;
+
+                    var element0 = prop.GetArrayElementAtIndex(0);
+                    element0.objectReferenceValue = rendererData;
+                    Debug.Log("Blackzone: ✓ Set " + propertyName + "[0] = " + rendererData.name);
+                    return true;
+                }
+                else
+                {
+                    Debug.LogWarning("Blackzone: Property '" + propertyName +
+                        "' exists but is NOT an array (type=" + prop.propertyType + ").");
+                    return false;
+                }
+            }
+            else
+            {
+                if (prop.propertyType == SerializedPropertyType.ObjectReference ||
+                    prop.propertyType == SerializedPropertyType.ExposedReference)
+                {
+                    prop.objectReferenceValue = rendererData;
+                    Debug.Log("Blackzone: ✓ Set " + propertyName + " = " + rendererData.name);
+                    return true;
+                }
+                else
+                {
+                    Debug.LogWarning("Blackzone: Property '" + propertyName +
+                        "' is not an object reference (type=" + prop.propertyType + ").");
+                    return false;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Reflection fallback: try to find and invoke any method that sets the renderer.
+        /// </summary>
+        private static bool TrySetRendererViaReflection(
+            UniversalRenderPipelineAsset urp,
+            UniversalRendererData rendererData)
+        {
+            var type = urp.GetType();
+            var methods = type.GetMethods(
+                System.Reflection.BindingFlags.Public |
+                System.Reflection.BindingFlags.NonPublic |
+                System.Reflection.BindingFlags.Instance);
+
+            foreach (var method in methods)
+            {
+                var parameters = method.GetParameters();
+                if (method.Name.Contains("Renderer") && parameters.Length == 2)
+                {
+                    if (parameters[0].ParameterType == typeof(int) &&
+                        parameters[1].ParameterType == typeof(ScriptableObject))
+                    {
+                        try
+                        {
+                            method.Invoke(urp, new object[] { 0, rendererData });
+                            Debug.Log("Blackzone: ✓ Reflection invoked " + method.Name + "(0, rendererData)");
+                            return true;
+                        }
+                        catch (System.Exception ex)
+                        {
+                            Debug.LogWarning("Blackzone: Reflection " + method.Name + " failed: " + ex.Message);
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Enumerates and logs ALL serialized properties on the URP asset.
+        /// This helps identify the correct property name if it differs across versions.
+        /// </summary>
+        private static void EnumerateProperties(SerializedObject so)
+        {
+            var prop = so.GetIterator();
+            bool first = true;
+            int count = 0;
+            while (prop.NextVisible(first))
+            {
+                count++;
+                string value = "";
+                switch (prop.propertyType)
+                {
+                    case SerializedPropertyType.ObjectReference:
+                        value = prop.objectReferenceValue != null
+                            ? prop.objectReferenceValue.name + " (" + prop.objectReferenceValue.GetType().Name + ")"
+                            : "null";
+                        break;
+                    case SerializedPropertyType.Integer:
+                        value = prop.intValue.ToString();
+                        break;
+                    case SerializedPropertyType.Boolean:
+                        value = prop.boolValue.ToString();
+                        break;
+                    case SerializedPropertyType.Float:
+                        value = prop.floatValue.ToString("F3");
+                        break;
+                    case SerializedPropertyType.ArraySize:
+                        value = "size=" + prop.arraySize;
+                        break;
+                }
+                Debug.Log("  [" + count + "] " + prop.name +
+                    " (type=" + prop.propertyType + ", path=" + prop.propertyPath +
+                    (string.IsNullOrEmpty(value) ? "" : ", value=" + value) + ")");
+                first = false;
+            }
+            Debug.Log("Blackzone: Total serialized properties: " + count);
+        }
+
+        /// <summary>
+        /// Verifies renderer persistence by re-reading assets from disk.
+        /// </summary>
+        private static bool VerifyRendererPersisted()
         {
             // Force refresh from disk
             AssetDatabase.Refresh();
 
-            // Re-load the asset from disk
-            var reloaded = AssetDatabase.LoadAssetAtPath<UniversalRenderPipelineAsset>(UrpAssetPath);
-            if (reloaded == null)
+            // Re-load pipeline from disk
+            var urp = AssetDatabase.LoadAssetAtPath<UniversalRenderPipelineAsset>(UrpAssetPath);
+            if (urp == null)
             {
-                Debug.LogError("Blackzone: Could not reload URP asset from disk!");
+                Debug.LogError("Blackzone: VERIFY FAIL — Could not reload pipeline from " + UrpAssetPath);
                 return false;
             }
 
-            // Read back the renderer list via SerializedObject
-            var so = new SerializedObject(reloaded);
-            var rendererListProp = so.FindProperty("m_RendererDataList");
-            if (rendererListProp == null)
-                rendererListProp = so.FindProperty("m_RendererData");
-
-            if (rendererListProp == null)
+            // Re-load renderer from disk
+            var renderer = AssetDatabase.LoadAssetAtPath<UniversalRendererData>(RendererAssetPath);
+            if (renderer == null)
             {
-                Debug.LogError("Blackzone: m_RendererDataList not found on reloaded asset.");
+                Debug.LogError("Blackzone: VERIFY FAIL — Could not reload renderer from " + RendererAssetPath);
                 return false;
             }
 
-            if (rendererListProp.isArray)
+            // Method 1: Try GetRenderer(0)
+            try
             {
-                if (rendererListProp.arraySize == 0)
+                var r = urp.GetRenderer(0);
+                if (r != null)
                 {
-                    Debug.LogError("Blackzone: m_RendererDataList is empty after reload!");
-                    return false;
+                    Debug.Log("Blackzone: VERIFY — urp.GetRenderer(0) = " + r.name +
+                        " (type=" + r.GetType().Name + ") ✓");
+                    return true;
                 }
-
-                var element0 = rendererListProp.GetArrayElementAtIndex(0);
-                if (element0.objectReferenceValue == null)
-                {
-                    Debug.LogError("Blackzone: m_RendererDataList[0] is null after reload! " +
-                        "The renderer reference was NOT persisted.");
-                    return false;
-                }
-
-                Debug.Log("Blackzone: Verified m_RendererDataList[0] = " +
-                    element0.objectReferenceValue.name + " (type=" +
-                    element0.objectReferenceValue.GetType().Name + ")");
-                return true;
+                Debug.LogWarning("Blackzone: VERIFY — urp.GetRenderer(0) returned null, trying SerializedObject...");
             }
-            else
+            catch (System.Exception ex)
             {
-                // Non-array: check if it has a value
-                return rendererListProp.objectReferenceValue != null;
+                Debug.LogWarning("Blackzone: VERIFY — urp.GetRenderer(0) threw: " + ex.Message +
+                    ", trying SerializedObject...");
             }
+
+            // Method 2: Read back via SerializedObject
+            var so = new SerializedObject(urp);
+            string[] propertyNames = { "m_RendererDataList", "m_RendererData", "m_RendererSettings" };
+
+            foreach (var name in propertyNames)
+            {
+                var prop = so.FindProperty(name);
+                if (prop == null) continue;
+
+                if (prop.isArray)
+                {
+                    if (prop.arraySize > 0)
+                    {
+                        var elem = prop.GetArrayElementAtIndex(0);
+                        if (elem.objectReferenceValue != null)
+                        {
+                            Debug.Log("Blackzone: VERIFY — " + name + "[0] = " +
+                                elem.objectReferenceValue.name + " ✓");
+                            return true;
+                        }
+                    }
+                }
+                else if (prop.objectReferenceValue != null)
+                {
+                    Debug.Log("Blackzone: VERIFY — " + name + " = " +
+                        prop.objectReferenceValue.name + " ✓");
+                    return true;
+                }
+            }
+
+            Debug.LogError("Blackzone: VERIFY FAIL — No renderer found in any property. " +
+                "See property enumeration in log for diagnosis.");
+            return false;
         }
 
-        /// <summary>Lists all SerializedProperty names on the asset for debugging.</summary>
-        private static void ListSerializedProperties(SerializedObject so)
+        /// <summary>
+        /// Force-deletes an asset file (both .asset and .meta).
+        /// </summary>
+        private static void ForceDeleteAsset(string path)
         {
-            var prop = so.GetIterator();
-            bool first = true;
-            while (prop.NextVisible(first))
+            if (File.Exists(path))
             {
-                Debug.Log("  Property: " + prop.name + " (type=" + prop.propertyType + ")");
-                first = false;
+                AssetDatabase.DeleteAsset(path);
+                Debug.Log("Blackzone: Deleted existing asset: " + path);
+            }
+            string metaPath = path + ".meta";
+            if (File.Exists(metaPath))
+            {
+                AssetDatabase.DeleteAsset(path + ".meta");
             }
         }
 
-        /// <summary>Configure URP pipeline settings for BLACKZONE.</summary>
+        /// <summary>
+        /// Configure URP pipeline settings for BLACKZONE.
+        /// </summary>
         private static void ConfigureUrpSettings(UniversalRenderPipelineAsset urp)
         {
             var so = new SerializedObject(urp);
 
-            // HDR: enable for post-processing color accuracy
             SetProp(so, "m_SupportsHDR", true);
-
-            // MSAA: off by default (quality presets override)
             SetProp(so, "m_MSAA", 1);
-            SetProp(so, "m_MSAA SampleCount", 1);
-
-            // Shadow distance: covers the 140×90m map
             SetProp(so, "m_ShadowDistance", 45f);
-
-            // Shadow cascades: 2 for mobile perf
             SetProp(so, "m_ShadowCascadeCount", 2);
-
-            // Additional lights: per-pixel, up to 4
             SetProp(so, "m_AdditionalLightsRenderingMode", 1);
             SetProp(so, "m_AdditionalLightsPerObjectLimit", 4);
-
-            // Reflection probes: blended
-            SetProp(so, "m_ReflectionProbeBlending", 1);
-
-            // Render scale: 1.0 (quality presets override)
             SetProp(so, "m_RenderScale", 1.0f);
-
-            // Main light shadows
             SetProp(so, "m_MainLightShadowsSupported", true);
             SetProp(so, "m_MainLightShadowmapResolution", 2048);
-
-            // Additional shadows: off for mobile
             SetProp(so, "m_AdditionalLightShadowsSupported", false);
 
             so.ApplyModifiedProperties();
+            Debug.Log("Blackzone: URP settings configured (HDR, shadows, additional lights).");
         }
 
-        /// <summary>Configure quality levels pointing at the URP asset.</summary>
+        /// <summary>
+        /// Configure quality levels pointing at the URP asset.
+        /// </summary>
         private static void ConfigureQualityLevels(UniversalRenderPipelineAsset urp)
         {
-            // Unity 6: configure existing quality levels
             int count = QualitySettings.names.Length;
             if (count < 3)
                 Debug.LogWarning("Blackzone: " + count + " quality levels found; " +
@@ -302,30 +492,63 @@ namespace Blackzone.EditorTools
             Debug.Log("Blackzone: Assigned URP asset to " + count + " quality levels.");
         }
 
-        /// <summary>Logs diagnostic info about the URP setup.</summary>
-        private static void LogDiagnostic(UniversalRenderPipelineAsset urp, UniversalRendererData rendererData)
+        /// <summary>
+        /// Logs full diagnostic information.
+        /// </summary>
+        private static void LogFullDiagnostic(
+            UniversalRenderPipelineAsset urp,
+            UniversalRendererData rendererData)
         {
-            Debug.Log("=== BLACKZONE URP DIAGNOSTIC ===");
-            Debug.Log("Pipeline asset: " + UrpAssetPath + " (exists=" + File.Exists(UrpAssetPath) + ")");
-            Debug.Log("Renderer asset: " + RendererAssetPath + " (exists=" + File.Exists(RendererAssetPath) + ")");
+            Debug.Log("========================================");
+            Debug.Log("BLACKZONE URP FULL DIAGNOSTIC");
+            Debug.Log("========================================");
+            Debug.Log("Pipeline asset path: " + UrpAssetPath);
+            Debug.Log("Pipeline asset exists on disk: " + File.Exists(UrpAssetPath));
+            Debug.Log("Pipeline asset instanceID: " + urp.GetInstanceID());
+            Debug.Log("Renderer asset path: " + RendererAssetPath);
+            Debug.Log("Renderer asset exists on disk: " + File.Exists(RendererAssetPath));
+            Debug.Log("Renderer asset instanceID: " + rendererData.GetInstanceID());
+            Debug.Log("Renderer asset name: " + rendererData.name);
             Debug.Log("GraphicsSettings.defaultRenderPipeline: " +
-                (GraphicsSettings.defaultRenderPipeline != null ? GraphicsSettings.defaultRenderPipeline.name : "NULL"));
+                (GraphicsSettings.defaultRenderPipeline != null
+                    ? GraphicsSettings.defaultRenderPipeline.name + " (" +
+                      GraphicsSettings.defaultRenderPipeline.GetInstanceID() + ")"
+                    : "NULL"));
+            Debug.Log("GraphicsSettings.renderPipelineAsset: " +
+                (GraphicsSettings.renderPipelineAsset != null
+                    ? GraphicsSettings.renderPipelineAsset.name
+                    : "NULL"));
             Debug.Log("QualitySettings.renderPipeline: " +
-                (QualitySettings.renderPipeline != null ? QualitySettings.renderPipeline.name : "NULL"));
-            Debug.Log("Quality levels: " + QualitySettings.names.Length);
+                (QualitySettings.renderPipeline != null
+                    ? QualitySettings.renderPipeline.name
+                    : "NULL"));
+            Debug.Log("QualitySettings.names: " + QualitySettings.names.Length);
+            Debug.Log("Unity version: " + Application.unityVersion);
 
-            // Try GetRenderer
+            // GetRenderer test
             try
             {
                 var r = urp.GetRenderer(0);
-                Debug.Log("urp.GetRenderer(0): " + (r != null ? r.name : "NULL"));
+                Debug.Log("urp.GetRenderer(0): " +
+                    (r != null ? r.name + " ✓" : "NULL ✗"));
             }
             catch (System.Exception ex)
             {
-                Debug.Log("urp.GetRenderer(0) threw: " + ex.Message);
+                Debug.Log("urp.GetRenderer(0) exception: " + ex.Message);
             }
 
-            Debug.Log("=== END DIAGNOSTIC ===");
+            // Pipeline asset file content check
+            if (File.Exists(UrpAssetPath))
+            {
+                string content = File.ReadAllText(UrpAssetPath);
+                bool hasFileID0 = content.Contains("fileID: 0") || content.Contains("fileID:0");
+                Debug.Log("URP .asset contains 'fileID: 0': " + hasFileID0 +
+                    (hasFileID0 ? " (WARNING — may indicate null references)" : " ✓"));
+            }
+
+            Debug.Log("========================================");
+            Debug.Log("END BLACKZONE URP DIAGNOSTIC");
+            Debug.Log("========================================");
         }
 
         // ---------------------------------------------------------------

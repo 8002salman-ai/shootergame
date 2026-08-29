@@ -36,7 +36,7 @@ namespace Blackzone.AI
         private Transform headBone;
         private Transform muzzle;
         private CapsuleCollider bodyCollider;
-        private Collider headCollider;
+        private SphereCollider headCollider;
         private Material bodyMaterial;
         private Color originalColor;
 

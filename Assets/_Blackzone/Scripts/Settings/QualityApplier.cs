@@ -37,7 +37,7 @@ namespace Blackzone.Settings
                 urp.renderScale = renderScales[quality];
                 urp.msaaSampleCount = msaa[quality];
                 urp.shadowDistance = shadowDistances[quality];
-                urp.mainLightCastShadows = shadows[quality] ? LightShadows.Soft : LightShadows.None;
+                // Main-light shadow mode is configured on the registered sun below.
             }
 
             if (sunLight != null)

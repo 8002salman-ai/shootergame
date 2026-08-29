@@ -40,11 +40,12 @@ namespace Blackzone.EditorTools
             }
 
             GraphicsSettings.defaultRenderPipeline = urp;
-            GraphicsSettings.renderPipelineAsset = urp;
+            GraphicsSettings.defaultRenderPipeline = urp;
 
-            // Ensure at least 3 quality levels and point them at the URP asset.
+            // Unity 6 no longer exposes AddQualityLevel. Configure the levels
+            // already present in the project; the editor can add more manually.
             if (QualitySettings.names.Length < 3)
-                QualitySettings.AddQualityLevel(3 - QualitySettings.names.Length, false);
+                Debug.LogWarning("Blackzone: fewer than 3 quality levels exist; configuring available levels only.");
 
             for (int i = 0; i < QualitySettings.names.Length; i++)
             {

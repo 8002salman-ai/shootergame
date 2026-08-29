@@ -65,5 +65,6 @@ namespace Blackzone.Input
         Crouch,
         PrevWeapon,
         NextWeapon
+        ,None
     }
 }

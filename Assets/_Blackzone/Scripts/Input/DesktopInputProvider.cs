@@ -23,26 +23,26 @@ namespace Blackzone.Input
 
         public void Sample()
         {
-            Move = new Vector2(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical"));
-            LookDelta = new Vector2(Input.GetAxis("Mouse X"), Input.GetAxis("Mouse Y"));
-            FireHeld = Input.GetMouseButton(0);
-            AdsHeld = Input.GetMouseButton(1);
+            Move = new Vector2(UnityEngine.Input.GetAxisRaw("Horizontal"), UnityEngine.Input.GetAxisRaw("Vertical"));
+            LookDelta = new Vector2(UnityEngine.Input.GetAxis("Mouse X"), UnityEngine.Input.GetAxis("Mouse Y"));
+            FireHeld = UnityEngine.Input.GetMouseButton(0);
+            AdsHeld = UnityEngine.Input.GetMouseButton(1);
 
-            firePressed = Input.GetMouseButtonDown(0);
-            reloadPressed = Input.GetKeyDown(KeyCode.R);
-            jumpPressed = Input.GetKeyDown(KeyCode.Space);
-            crouchPressed = Input.GetKeyDown(KeyCode.LeftControl) || Input.GetKeyDown(KeyCode.C);
-            pausePressed = Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.P);
+            firePressed = UnityEngine.Input.GetMouseButtonDown(0);
+            reloadPressed = UnityEngine.Input.GetKeyDown(KeyCode.R);
+            jumpPressed = UnityEngine.Input.GetKeyDown(KeyCode.Space);
+            crouchPressed = UnityEngine.Input.GetKeyDown(KeyCode.LeftControl) || UnityEngine.Input.GetKeyDown(KeyCode.C);
+            pausePressed = UnityEngine.Input.GetKeyDown(KeyCode.Escape) || UnityEngine.Input.GetKeyDown(KeyCode.P);
 
             slotRequested = -1;
-            if (Input.GetKeyDown(KeyCode.Alpha1)) slotRequested = 0;
-            else if (Input.GetKeyDown(KeyCode.Alpha2)) slotRequested = 1;
-            else if (Input.GetKeyDown(KeyCode.Alpha3)) slotRequested = 2;
-            else if (Input.GetKeyDown(KeyCode.Alpha4)) slotRequested = 3;
+            if (UnityEngine.Input.GetKeyDown(KeyCode.Alpha1)) slotRequested = 0;
+            else if (UnityEngine.Input.GetKeyDown(KeyCode.Alpha2)) slotRequested = 1;
+            else if (UnityEngine.Input.GetKeyDown(KeyCode.Alpha3)) slotRequested = 2;
+            else if (UnityEngine.Input.GetKeyDown(KeyCode.Alpha4)) slotRequested = 3;
 
             prevNext = 0;
-            if (Input.GetKeyDown(KeyCode.Q)) prevNext = -1;
-            else if (Input.GetKeyDown(KeyCode.E)) prevNext = 1;
+            if (UnityEngine.Input.GetKeyDown(KeyCode.Q)) prevNext = -1;
+            else if (UnityEngine.Input.GetKeyDown(KeyCode.E)) prevNext = 1;
         }
 
         public bool ConsumeFirePressed() { bool v = firePressed; firePressed = false; return v; }

@@ -1,0 +1,74 @@
+# =============================================================
+# BLACKZONE - Unity 6 / URP / Android - Git ignore rules
+# =============================================================
+
+# ---- Unity generated folders (never commit) ----
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+MemoryCaptures/
+Recordings/
+
+# ---- Unity cache / generated files ----
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+sysinfo.txt
+*.apk.override
+*.unitypackage
+crashlytics-build.properties
+
+# ---- IDE / editor local files ----
+.vs/
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ---- Build output ----
+Build/
+Builds/
+bin/
+intermediate/
+
+# ---- Secrets / credentials (never commit) ----
+*.keystore
+*.jks
+*.key
+*.pem
+*.pfx
+keytool/
+google-services.json
+firebase-*.json
+*.signing
+secrets/
+.env
+.env.*
+
+# ---- Git ----
+.git-credentials
+.netrc
+
+# ---- Python tooling caches (repo-local tooling only) ----
+__pycache__/
+*.pyc
+.venv/
+.cache/

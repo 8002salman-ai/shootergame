@@ -25,6 +25,9 @@ namespace Blackzone.Core
         {
             var systemsRoot = new GameObject("[Systems]").transform;
 
+            // 0. Runtime safety: verify URP pipeline has a renderer
+            VerifyRenderPipeline();
+
             // 1. Settings + quality (before anything renders)
             GameSettings.Load();
             QualityApplier.Apply(GameSettings.Quality);
@@ -47,7 +50,11 @@ namespace Blackzone.Core
             // 7. UI (HUD, mobile controls, pause, death, settings)
             UiFactory.Build(player, spawner);
 
-            // 8. Game manager wiring
+            // 8. Post-processing volume (premium FPS atmosphere)
+            PostProcessingSetup.Setup(player.Camera);
+            PostProcessingSetup.SetQuality(GameSettings.Quality);
+
+            // 9. Game manager wiring
             var gm = systemsRoot.gameObject.AddComponent<GameManager>();
             gm.BindPlayer(player.Root, player.Health, player.Armor);
             gm.SetRestartAction(() =>
@@ -60,6 +67,44 @@ namespace Blackzone.Core
                 spawner.ResetAll();
             });
             gm.StartEncounter();
+        }
+
+        /// <summary>
+        /// Runtime safety: verify the URP pipeline asset has a valid renderer.
+        /// If not, log a clear error directing the user to run Blackzone > 01.
+        /// </summary>
+        private static void VerifyRenderPipeline()
+        {
+            var pipeline = UnityEngine.Rendering.GraphicsSettings.defaultRenderPipeline;
+            if (pipeline == null)
+            {
+                Debug.LogError("[BLACKZONE] No render pipeline assigned! " +
+                    "Run menu Blackzone > 01 - Create URP Asset + Quality Levels.");
+                return;
+            }
+
+            // Check if the pipeline asset has a renderer assigned
+            var urpAsset = pipeline as UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset;
+            if (urpAsset != null)
+            {
+                try
+                {
+                    var renderer = urpAsset.GetRenderer(0);
+                    if (renderer == null)
+                    {
+                        Debug.LogError("[BLACKZONE] URP asset has NO renderer assigned! " +
+                            "This causes 'Default Renderer is missing' error.\n" +
+                            "Fix: Run menu Blackzone > 01 - Create URP Asset + Quality Levels\n" +
+                            "Or manually assign a Forward Renderer in the URP asset inspector.");
+                    }
+                }
+                catch
+                {
+                    // Older URP API — check via reflection
+                    Debug.LogWarning("[BLACKZONE] Could not verify renderer assignment. " +
+                        "If you see renderer errors, re-run Blackzone > 01.");
+                }
+            }
         }
 
         /// <summary>Drives the input snapshot after all gameplay updates.</summary>

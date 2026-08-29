@@ -1,3 +1,4 @@
+using Blackzone.World;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
@@ -42,6 +43,9 @@ namespace Blackzone.Settings
 
             if (sunLight != null)
                 sunLight.shadows = shadows[quality] ? LightShadows.Soft : LightShadows.None;
+
+            // Premium post-processing scales with quality
+            PostProcessingSetup.SetQuality(quality);
 
             OnQualityChanged?.Invoke(quality);
         }

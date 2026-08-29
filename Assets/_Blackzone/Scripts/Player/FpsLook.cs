@@ -6,17 +6,18 @@ using UnityEngine;
 namespace Blackzone.Player
 {
     /// <summary>
-    /// Camera look: yaw on the parent rig, pitch on this camera, vertical
-    /// pitch limits, sensitivity + ADS sensitivity scaling, recoil punch with
-    /// smooth recovery, and FOV blending for ADS / sprint.
+    /// Camera look with weapon sway: yaw on parent rig, pitch on camera,
+    /// sensitivity + ADS scaling, recoil with recovery, FOV blending,
+    /// and new: movement-based weapon sway, look-sway response, and
+    /// sprint bob for tactical FPS feel.
     /// </summary>
     public sealed class FpsLook : MonoBehaviour
     {
         [SerializeField, Range(1f, 89f)] private float pitchLimit = 88f;
 
-        private Transform rig;          // yaw
+        private Transform rig;
         private float yaw;
-        private float pitch;            // current pitch (base + recoil)
+        private float pitch;
         private float basePitch;
         private float recoilPitch;
         private float recoilYaw;
@@ -27,6 +28,27 @@ namespace Blackzone.Player
         private bool sprinting;
 
         private Camera cam;
+
+        // Weapon sway state
+        private float swayX;
+        private float swayY;
+        private float swayYaw;
+        private float swayPitch;
+        private Vector3 lastMouseDelta;
+
+        // Sway parameters
+        private const float SwayIntensity = 0.004f;
+        private const float SwaySmoothing = 8f;
+        private const float LookSwayIntensity = 0.003f;
+        private const float SprintSwayAmount = 0.008f;
+        private const float SprintSwaySpeed = 6f;
+        private float sprintSwayPhase;
+
+        // Head bob
+        private float bobPhase;
+        private const float BobFrequency = 9f;
+        private const float BobAmountHorizontal = 0.003f;
+        private const float BobAmountVertical = 0.005f;
 
         private void Awake()
         {
@@ -47,7 +69,7 @@ namespace Blackzone.Player
             yaw += delta.x * lookScale * sens;
             basePitch -= delta.y * lookScale * sens * (adsAmount > 0.5f ? adsSens : 1f);
 
-            // --- Recoil recovery (view returns toward the aim point) ---
+            // Recoil recovery
             float recovery = recoilRecovery * Time.deltaTime;
             recoilPitch = Mathf.MoveTowards(recoilPitch, 0f, recovery);
             recoilYaw = Mathf.MoveTowards(recoilYaw, 0f, recovery);
@@ -57,14 +79,70 @@ namespace Blackzone.Player
             rig.rotation = Quaternion.Euler(0f, yaw, 0f);
             transform.localRotation = Quaternion.Euler(pitch, recoilYaw, 0f);
 
-            // --- FOV ---
+            // FOV
             float baseFov = GameConstants.BaseFov;
             float targetFov = Mathf.Lerp(baseFov, adsFov, adsAmount);
             if (sprinting && adsAmount < 0.1f) targetFov += 6f;
             cam.fieldOfView = Mathf.Lerp(cam.fieldOfView, targetFov, 12f * Time.deltaTime);
+
+            // Weapon sway (applied from WeaponRuntime)
+            UpdateSway(delta);
         }
 
-        /// <summary>Called by the weapon arsenal each frame.</summary>
+        /// <summary>Called by WeaponRuntime each frame to apply sway offset.</summary>
+        public Vector3 GetCurrentSway()
+        {
+            return new Vector3(swayX, swayY, 0f);
+        }
+
+        /// <summary>Called by WeaponRuntime each frame to apply sway rotation.</summary>
+        public Quaternion GetCurrentSwayRotation()
+        {
+            return Quaternion.Euler(swayPitch, swayYaw, 0f);
+        }
+
+        private void UpdateSway(Vector2 mouseDelta)
+        {
+            float dt = Time.deltaTime;
+            float adsInverse = 1f - adsAmount; // sway reduces during ADS
+
+            // Mouse-look sway: weapon lags behind camera rotation
+            float targetSwayYaw = -mouseDelta.x * LookSwayIntensity * adsInverse;
+            float targetSwayPitch = mouseDelta.y * LookSwayIntensity * adsInverse;
+            swayYaw = Mathf.Lerp(swayYaw, targetSwayYaw, SwaySmoothing * dt);
+            swayPitch = Mathf.Lerp(swayPitch, targetSwayPitch, SwaySmoothing * dt);
+
+            // Movement sway: based on input
+            Vector2 input = GameInput.Move;
+            float targetSwayX = -input.x * SwayIntensity * adsInverse;
+            float targetSwayY = input.y * SwayIntensity * 0.5f * adsInverse;
+            swayX = Mathf.Lerp(swayX, targetSwayX, SwaySmoothing * dt);
+            swayY = Mathf.Lerp(swayY, targetSwayY, SwaySmoothing * dt);
+
+            // Sprint sway: exaggerated bob
+            if (sprinting && input.y > 0.5f)
+            {
+                sprintSwayPhase += SprintSwaySpeed * dt;
+                float sprintBobX = Mathf.Sin(sprintSwayPhase) * SprintSwayAmount * adsInverse;
+                float sprintBobY = Mathf.Abs(Mathf.Sin(sprintSwayPhase * 0.5f)) * SprintSwayAmount * 0.5f * adsInverse;
+                swayX += sprintBobX;
+                swayY += sprintBobY;
+            }
+            else
+            {
+                sprintSwayPhase = 0f;
+            }
+
+            // Head bob (subtle, only when moving on ground)
+            bool isMoving = input.sqrMagnitude > 0.01f;
+            if (isMoving && !sprinting)
+            {
+                bobPhase += BobFrequency * dt;
+                swayX += Mathf.Cos(bobPhase) * BobAmountHorizontal * adsInverse;
+                swayY += Mathf.Sin(bobPhase * 2f) * BobAmountVertical * adsInverse;
+            }
+        }
+
         public void SetWeaponViewState(float ads, float fov, bool isSprinting)
         {
             adsAmount = ads;
@@ -72,7 +150,6 @@ namespace Blackzone.Player
             sprinting = isSprinting;
         }
 
-        /// <summary>Recoil punch in degrees (positive pitch = up).</summary>
         public void ApplyRecoil(float verticalDegrees, float horizontalDegrees)
         {
             recoilPitch = Mathf.Clamp(recoilPitch + verticalDegrees, -12f, 12f);
@@ -93,6 +170,12 @@ namespace Blackzone.Player
             transform.localRotation = Quaternion.identity;
             rig.rotation = Quaternion.Euler(0f, yaw, 0f);
             adsAmount = 0f;
+            swayX = 0f;
+            swayY = 0f;
+            swayYaw = 0f;
+            swayPitch = 0f;
+            sprintSwayPhase = 0f;
+            bobPhase = 0f;
         }
     }
 }

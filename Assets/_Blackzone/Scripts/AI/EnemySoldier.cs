@@ -86,7 +86,9 @@ namespace Blackzone.AI
             body.transform.SetParent(transform, false);
             body.transform.localPosition = new Vector3(0f, 0.9f, 0f);
             body.transform.localScale = new Vector3(0.72f, 0.95f, 0.72f);
-            var bodyMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+            var bodyShader = Shader.Find("Universal Render Pipeline/Lit");
+            if (bodyShader == null) bodyShader = Shader.Find("Standard");
+            var bodyMat = new Material(bodyShader);
             bodyMat.color = slot % 2 == 0
                 ? new Color(0.55f, 0.50f, 0.36f)   // rookie: khaki
                 : new Color(0.34f, 0.39f, 0.30f);  // soldier: olive
@@ -270,9 +272,14 @@ namespace Blackzone.AI
             bodyCollider.enabled = false;
             headCollider.enabled = false;
             if (bodyMaterial != null) bodyMaterial.color = new Color(0.16f, 0.14f, 0.12f);
-            transform.rotation = Quaternion.Euler(0f, transform.eulerAngles.y, -90f);
+            // Smooth fall-over: tilt sideways in random direction
+            float fallDir = Random.value > 0.5f ? -90f : 90f;
+            transform.rotation = Quaternion.Euler(0f, transform.eulerAngles.y, fallDir);
             AudioManager.Instance.Play(AudioId.EnemyDeath, 1f);
             GameEvents.EmitEnemyKilled();
+            // Spawn dust puff at death position
+            if (WeaponFx.HasInit())
+                WeaponFx.SpawnImpact(transform.position + Vector3.up * 0.3f, Vector3.up);
         }
 
         // ---------------------------------------------------------------

@@ -7,9 +7,9 @@ using UnityEngine;
 namespace Blackzone.Weapons
 {
     /// <summary>
-    /// Runtime state of a single weapon instance: ammo, reload, ADS blend,
-    /// recoil kick and per-shot effects. One instance per loadout slot; the
-    /// arsenal drives Tick() each frame. Uses the shared ballistics service.
+    /// Runtime state of a single weapon instance. Handles ammo, reload, ADS,
+    /// recoil, per-shot FX (muzzle flash, tracer, impact, shell ejection),
+    /// and weapon sway from FpsLook.
     /// </summary>
     public sealed class WeaponRuntime
     {
@@ -34,6 +34,16 @@ namespace Blackzone.Weapons
         private float kickRotX;
         private bool dryClicked;
 
+        // Weapon sway
+        private float swayBlendX;
+        private float swayBlendY;
+        private float swayRotX;
+        private float swayRotY;
+        private const float SwaySmoothing = 10f;
+
+        // Shell ejection
+        private Transform shellEjectPoint;
+
         public int MagazineAmmo { get; private set; }
         public int ReserveAmmo { get; private set; }
         public bool IsReloading => reloading;
@@ -50,6 +60,11 @@ namespace Blackzone.Weapons
             visualRoot = new GameObject(def.displayName + "_Visual").transform;
             visualRoot.SetParent(viewRoot, false);
             muzzle = WeaponVisualFactory.Build(def, visualRoot);
+
+            // Shell ejection point (right side of receiver)
+            shellEjectPoint = new GameObject("ShellEject").transform;
+            shellEjectPoint.SetParent(visualRoot, false);
+            shellEjectPoint.localPosition = new Vector3(0.06f, 0.06f, -0.05f);
 
             SetupStancePositions();
 
@@ -143,10 +158,17 @@ namespace Blackzone.Weapons
                 }
             }
 
-            // Muzzle + tracer
+            // Muzzle flash + tracer
             Vector3 muzzleWorld = muzzle.position;
             WeaponFx.SpawnMuzzleFlash(muzzleWorld, camForward);
             WeaponFx.SpawnTracer(muzzleWorld, lastHit ?? camPos + camForward * 80f);
+
+            // Shell ejection (right side, outward)
+            if (shellEjectPoint != null)
+            {
+                Vector3 ejectDir = shellEjectPoint.TransformDirection(Vector3.right + Vector3.up * 0.5f + Vector3.forward * 0.3f);
+                WeaponFx.SpawnShellCasing(shellEjectPoint.position, ejectDir);
+            }
 
             // Audio + recoil + kick
             AudioManager.Instance.Play(AudioId.Fire, Def.audioPitch);
@@ -170,10 +192,29 @@ namespace Blackzone.Weapons
             {
                 reloadTimer -= dt;
                 ReloadProgress = Mathf.Clamp01(1f - reloadTimer / Def.reloadTime);
+
+                // Reload visual: lower weapon, then raise
+                if (ReloadProgress < 0.3f)
+                {
+                    // Lowering phase
+                    float t = ReloadProgress / 0.3f;
+                    kickRotX = Mathf.Lerp(0f, -15f, t);
+                    kickZ = Mathf.Lerp(0f, -0.02f, t);
+                }
+                else if (ReloadProgress > 0.8f)
+                {
+                    // Raising phase
+                    float t = (ReloadProgress - 0.8f) / 0.2f;
+                    kickRotX = Mathf.Lerp(-10f, 0f, t);
+                    kickZ = Mathf.Lerp(-0.015f, 0f, t);
+                }
+
                 if (reloadTimer <= 0f)
                 {
                     reloading = false;
                     ReloadProgress = 0f;
+                    kickRotX = 0f;
+                    kickZ = 0f;
                     int transfer = Mathf.Min(Def.magazineSize - MagazineAmmo, ReserveAmmo);
                     MagazineAmmo += transfer;
                     ReserveAmmo -= transfer;
@@ -184,13 +225,28 @@ namespace Blackzone.Weapons
 
             adsAmount = Mathf.MoveTowards(adsAmount, adsWanted ? 1f : 0f, Def.adsSpeed * dt);
 
+            // Kick recovery
             kickZ = Mathf.Lerp(kickZ, 0f, 9f * dt);
             kickRotX = Mathf.Lerp(kickRotX, 0f, 9f * dt);
 
+            // Weapon sway from FpsLook
+            Vector3 lookSway = look.GetCurrentSway();
+            Quaternion lookSwayRot = look.GetCurrentSwayRotation();
+            float adsSwayReduce = Mathf.Lerp(1f, 0.2f, adsAmount);
+
+            swayBlendX = Mathf.Lerp(swayBlendX, lookSway.x * adsSwayReduce, SwaySmoothing * dt);
+            swayBlendY = Mathf.Lerp(swayBlendY, lookSway.y * adsSwayReduce, SwaySmoothing * dt);
+            swayRotX = Mathf.Lerp(swayRotX, lookSwayRot.eulerAngles.x * adsSwayReduce, SwaySmoothing * dt);
+            swayRotY = Mathf.Lerp(swayRotY, lookSwayRot.eulerAngles.y * adsSwayReduce, SwaySmoothing * dt);
+
+            // Combine all transforms
             Vector3 basePos = Vector3.Lerp(hipPos, adsPos, adsAmount);
-            visualRoot.localPosition = basePos + new Vector3(0f, 0f, kickZ);
-            visualRoot.localRotation = Quaternion.Slerp(hipRot, adsRot, adsAmount) *
-                                       Quaternion.Euler(kickRotX, 0f, 0f);
+            Vector3 finalPos = basePos + new Vector3(swayBlendX, swayBlendY, kickZ);
+            Quaternion finalRot = Quaternion.Slerp(hipRot, adsRot, adsAmount) *
+                                  Quaternion.Euler(kickRotX + swayRotX, swayRotY, 0f);
+
+            visualRoot.localPosition = finalPos;
+            visualRoot.localRotation = finalRot;
         }
 
         public void Restock()
@@ -202,6 +258,12 @@ namespace Blackzone.Weapons
             adsAmount = 0f;
             adsWanted = false;
             fireCooldown = 0f;
+            kickZ = 0f;
+            kickRotX = 0f;
+            swayBlendX = 0f;
+            swayBlendY = 0f;
+            swayRotX = 0f;
+            swayRotY = 0f;
         }
 
         public void SetActive(bool active)
@@ -209,7 +271,6 @@ namespace Blackzone.Weapons
             visualRoot.gameObject.SetActive(active);
         }
 
-        /// <summary>Applies cone spread (plus a deterministic pellet ring).</summary>
         private static Vector3 Spread(Vector3 forward, float spreadDeg, float patternDeg, int pelletIndex)
         {
             if (spreadDeg <= 0f && patternDeg <= 0f) return forward;

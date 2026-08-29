@@ -2,6 +2,7 @@ using Blackzone.Combat;
 using Blackzone.Utilities;
 using Blackzone.Weapons;
 using UnityEngine;
+using UnityEngine.Rendering.Universal;
 
 namespace Blackzone.Player
 {
@@ -60,11 +61,15 @@ namespace Blackzone.Player
             cam.fieldOfView = GameConstants.BaseFov;
             cam.nearClipPlane = 0.05f;
             cam.farClipPlane = 320f;
-            cam.clearFlags = CameraClearFlags.SolidColor;
-            cam.backgroundColor = new Color(0.55f, 0.53f, 0.48f);
+            cam.clearFlags = CameraClearFlags.Skybox;
+            cam.backgroundColor = new Color(0.55f, 0.53f, 0.48f); // fallback if no skybox
             cam.cullingMask = ~(1 << GameConstants.LayerUI);
             rig.Camera = cam;
             rig.Look = camGo.AddComponent<FpsLook>();
+
+            // Enable URP post-processing on camera
+            var camData = camGo.AddComponent<UniversalAdditionalCameraData>();
+            camData.renderPostProcessing = true;
 
             // Viewmodel root (child of camera)
             var viewRoot = new GameObject("ViewmodelRoot").transform;
